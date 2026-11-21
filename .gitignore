@@ -57,7 +57,7 @@ data/processed/
 outputs/
 results/
 reports/generated/
-results/
+Results/
 
 # Model artifacts / large files
 models/
