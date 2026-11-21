@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 REGIMES = ("none", "wealth", "transaction")
+TAX_GRID = (0.05, 0.10, 0.20, 0.30)
 
 
 @dataclass(frozen=True)

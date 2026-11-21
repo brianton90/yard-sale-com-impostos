@@ -56,6 +56,22 @@ def compute_conservation_error(wealth: np.ndarray, cash: float, initial_total: f
     return abs(float(np.sum(wealth)) + cash - initial_total) / initial_total
 
 
+def compute_lorenz(wealth: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return population and cumulative wealth shares for a Lorenz curve."""
+    wealth = np.asarray(wealth, dtype=float)
+    if wealth.ndim != 1 or len(wealth) == 0:
+        raise ValueError("wealth deve ser um vetor não vazio")
+    if not np.all(np.isfinite(wealth)) or np.any(wealth < 0.0):
+        raise ValueError("wealth deve conter valores finitos e não negativos")
+    total = float(wealth.sum())
+    if total <= 0.0:
+        raise ValueError("a soma da riqueza deve ser positiva")
+    cumulative = np.concatenate(([0.0], np.cumsum(np.sort(wealth), dtype=float) / total))
+    cumulative[-1] = 1.0
+    population = np.linspace(0.0, 1.0, len(wealth) + 1)
+    return population, cumulative
+
+
 def summarize_wealth(
     wealth: np.ndarray,
     max_conservation_error: float = 0.0,

@@ -54,6 +54,24 @@ def apply_trade(
     state.cash += tax
 
 
+def execute_interaction(
+    state: SimulationState,
+    i: int,
+    j: int,
+    first_agent_wins: bool,
+    transaction_tax_rate: float = 0.0,
+) -> TradeResult:
+    """Execute uma interação com par e resultado previamente determinados."""
+    if i == j:
+        raise ValueError("a interação exige agentes distintos")
+    if not 0 <= i < len(state.wealth) or not 0 <= j < len(state.wealth):
+        raise ValueError("índice de agente inválido")
+    stake = compute_stake(state, i, j)
+    winner, loser = (i, j) if first_agent_wins else (j, i)
+    apply_trade(state, winner, loser, stake, transaction_tax_rate)
+    return TradeResult(i=i, j=j, stake=stake, winner=winner, loser=loser)
+
+
 def yard_sale_step(
     state: SimulationState,
     rng: np.random.Generator,
@@ -61,7 +79,5 @@ def yard_sale_step(
 ) -> TradeResult:
     """Execute one Yard-Sale interaction."""
     i, j = select_agents(len(state.wealth), rng)
-    stake = compute_stake(state, i, j)
-    winner, loser = decide_winner(i, j, rng)
-    apply_trade(state, winner, loser, stake, transaction_tax_rate)
-    return TradeResult(i=i, j=j, stake=stake, winner=winner, loser=loser)
+    first_agent_wins = rng.random() <= 0.5
+    return execute_interaction(state, i, j, first_agent_wins, transaction_tax_rate)
