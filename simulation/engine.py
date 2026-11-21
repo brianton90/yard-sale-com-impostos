@@ -1,5 +1,6 @@
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -14,8 +15,11 @@ from simulation.metrics import (
     summarize_wealth,
 )
 from simulation.model import SimulationHistory, SimulationState
-from simulation.rules import yard_sale_step
+from simulation.rules import execute_interaction, yard_sale_step
 from simulation.taxes import apply_wealth_tax, redistribute_cash
+
+if TYPE_CHECKING:
+    from experiments.randomization import SimulationRandomness
 
 
 @dataclass(frozen=True)
@@ -24,29 +28,34 @@ class SimulationResult:
     metrics: SimulationMetrics
     history: SimulationHistory
     series: SimulationSeries
-    duration_seconds: float  # duração total da execução (inicialização + todos os passos + métricas)
+    duration_seconds: float
 
 
-def run_simulation(config: SimulationConfig) -> SimulationResult:
+def run_simulation(
+    config: SimulationConfig,
+    randomness: "SimulationRandomness | None" = None,
+    required_snapshot_steps: tuple[int, ...] = (),
+) -> SimulationResult:
     """Executa uma simulação completa do modelo Yard-Sale.
 
-    Sequência de cada passo de Monte Carlo (N/2 tentativas de troca):
-      1. trocas sequenciais (com imposto sobre transações, se o regime for esse);
-      2. cobrança patrimonial simultânea (se o regime for esse);
-      3. redistribuição igualitária do caixa;
-      4. registro dos indicadores, após a redistribuição.
-
-    Snapshots da riqueza são guardados no passo 0, a cada `snapshot_interval`
-    passos e no passo final.
+    Sem ``randomness``, preserva o caminho legado baseado em ``config.seed``.
+    No caminho experimental, beta, pares e vencedores vêm exclusivamente dos
+    arrays injetados. Os snapshots incluem os passos regulares e obrigatórios.
     """
     if config.snapshot_interval < 1:
         raise ValueError("snapshot_interval deve ser >= 1")
+    if any(not isinstance(step, (int, np.integer)) for step in required_snapshot_steps):
+        raise ValueError("required_snapshot_steps deve conter somente inteiros")
+    required = tuple(int(step) for step in required_snapshot_steps)
+    if any(step < 0 or step > config.n_steps for step in required):
+        raise ValueError("required_snapshot_steps deve estar entre 0 e n_steps")
 
     start_time = time.perf_counter()
-
     rng = np.random.default_rng(config.seed)
-    state = initialize_state(config, rng)
-    initial_total = state.total_wealth  # W0
+    if randomness is not None:
+        randomness.validate(config.n_agents, config.n_steps)
+    state = initialize_state(config, rng, None if randomness is None else randomness.aversion)
+    initial_total = state.total_wealth
     trades_per_step = config.n_agents // 2
     transaction_tax_rate = config.transaction_tax_rate
     wealth_tax_rate = config.wealth_tax_rate
@@ -60,19 +69,31 @@ def run_simulation(config: SimulationConfig) -> SimulationResult:
     min_wealth_observed = float(state.wealth.min())
     max_cash = 0.0
 
+    steps_to_save = set(required)
+    steps_to_save.update(range(0, config.n_steps + 1, config.snapshot_interval))
+    steps_to_save.update((0, config.n_steps))
     snapshot_steps: list[int] = [0]
     snapshots: list[np.ndarray] = [state.wealth.copy()]
 
     for step in range(1, config.n_steps + 1):
         step_volume = 0.0
-        for _ in range(trades_per_step):
-            trade = yard_sale_step(state, rng, transaction_tax_rate)
+        for trade_index in range(trades_per_step):
+            if randomness is None:
+                trade = yard_sale_step(state, rng, transaction_tax_rate)
+            else:
+                pair = randomness.pairs[step - 1, trade_index]
+                trade = execute_interaction(
+                    state,
+                    int(pair[0]),
+                    int(pair[1]),
+                    bool(randomness.first_agent_wins[step - 1, trade_index]),
+                    transaction_tax_rate,
+                )
             step_volume += trade.stake
 
         if wealth_tax_rate > 0.0:
             apply_wealth_tax(state, wealth_tax_rate)
 
-        # Estado imediatamente antes da devolução: o caixa contém a arrecadação do ciclo.
         step_revenue = state.cash
         max_cash = max(max_cash, step_revenue)
         min_wealth_observed = min(min_wealth_observed, float(state.wealth.min()))
@@ -94,7 +115,7 @@ def run_simulation(config: SimulationConfig) -> SimulationResult:
         volume[idx] = step_volume / initial_total
         revenue[idx] = step_revenue / initial_total
 
-        if step % config.snapshot_interval == 0 or step == config.n_steps:
+        if step in steps_to_save:
             snapshot_steps.append(step)
             snapshots.append(state.wealth.copy())
 

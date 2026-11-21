@@ -136,6 +136,58 @@ Exemplo para o regime `none` com a configuração padrão:
 
 ![Séries temporais, regime none](Results/series_temporais_none.png)
 
+## Experimento comparativo reproduzível
+
+O fluxo experimental separado de `main.py` executa a grade canônica de nove configurações:
+
+- `none`, com alíquota canônica zero;
+- `wealth` com `τ ∈ {0.05, 0.10, 0.20, 0.30}`;
+- `transaction` com as mesmas quatro alíquotas.
+
+Por padrão, o protocolo usa `R=10`, `N=10000`, 300 passos, janela inclusiva `[150, 300]`, mobilidade com `Δt=50`, snapshots regulares a cada 10 passos e semente-base 2025. A duração, a janela e o intervalo de mobilidade ainda não foram avaliados por pilotos. Por isso, o protocolo registra `stability_status=not_assessed` e todas as saídas são identificadas como **tempo finito**, não como estimativas estacionárias.
+
+Cada realização recebe streams independentes derivados com `SeedSequence.spawn`. Dentro de uma realização, as nove configurações compartilham exatamente os mesmos parâmetros `β`, a condição inicial igualitária, os pares e os vencedores. Uma chave de desempate própria, fixa por agente e gerada em stream separado, é usada apenas na mobilidade por quintis. Os hashes do protocolo e das entradas comuns permitem auditar o pareamento.
+
+```bash
+# Experimento científico completo: 90 execuções. Rode apenas explicitamente.
+make experiment EXPERIMENT_ID=principal
+
+# Retoma resultados válidos e executa somente o que falta.
+python -m experiments.run_experiment simulate --experiment-id principal
+
+# Recria tabelas e figuras exclusivamente dos dados brutos em disco.
+python -m experiments.run_experiment analyze --experiment-id principal
+
+# Smoke rápido com 18 execuções pequenas.
+make experiment-smoke RESULTS_ROOT=/tmp/yard-sale-experiments
+```
+
+O subcomando `all` executa `simulate` e depois `analyze`. A persistência de NPZ e JSON é atômica. Uma segunda chamada pula somente saídas completas cujos IDs e hashes conferem. Um protocolo incompatível no mesmo `experiment_id` é recusado.
+
+Cada experimento fica isolado em `Results/experiments/<experiment_id>/`:
+
+```text
+protocol.json
+manifest.json
+raw/realization_NNN/common_inputs.npz
+raw/realization_NNN/<configuration_tag>.npz
+tables/series_mean_se.csv
+tables/metric_summary.csv e metric_summary.md
+tables/paired_differences.csv e paired_differences.md
+tables/diagnostics.csv
+tables/lorenz_mean_se.csv
+tables/mobility_matrices.csv
+tables/boundary_ties.csv
+figures/series_mean_se.png
+figures/metrics_vs_tau.png
+figures/lorenz_selected.png
+figures/mobility_none.png
+figures/mobility_wealth_tau0.05.png
+figures/mobility_transaction_tau0.05.png
+```
+
+As médias de janela são calculadas primeiro em cada realização. A média final e o erro-padrão usam as realizações como unidades independentes, com `EP = std(ddof=1)/sqrt(R)`. As diferenças `wealth − transaction` são calculadas de forma pareada para cada alíquota. As curvas de Lorenz usam cinco cenários predefinidos. A mobilidade usa os três cenários predefinidos na metodologia, preserva a identidade dos agentes e registra empates nas quatro fronteiras dos quintis.
+
 ## Docker
 
 O `Dockerfile` usa `python:3.11-slim`, instala `requirements.txt` e executa `python main.py` com o backend `Agg` do matplotlib, sem janela gráfica. Para recuperar as figuras no host, monte a pasta `Results`:
@@ -148,15 +200,14 @@ docker run --rm -v "$(pwd)/Results:/app/Results" yard-sale-com-impostos
 ## Testes
 
 ```bash
-pytest
-pytest -v
+make test
 ```
 
-A suíte atual tem 6 testes: conservação da riqueza em `apply_trade`, aposta como mínimo dos montantes disponíveis (`compute_stake`) e propriedades do Gini (distribuição igual, concentração total, caso intermediário e invariância à ordem). Os testes dos mecanismos de imposto e da redistribuição ainda não foram escritos.
+A suíte cobre regras de troca e impostos, invariantes do motor, métricas, aleatoriedade comum, persistência retomável, estatística, Lorenz, mobilidade e a integração experimental pequena. Nenhum teste executa o experimento científico de 90 execuções.
 
 ## Reprodutibilidade
 
-Todo o sorteio usa um único gerador, `np.random.default_rng(config.seed)`, criado em `run_simulation`. Ele sorteia as aversões `β_i`, os pares e os vencedores. Com a mesma configuração e a mesma semente, a execução produz o mesmo resultado. A API legada `np.random.*` não é usada. O gerador é único, então os regimes comparados com a mesma semente não compartilham automaticamente as mesmas sequências de pares e vencedores.
+A execução simples mantém o gerador `np.random.default_rng(config.seed)` e a API `run_simulation(config)`. O fluxo experimental torna os números aleatórios comuns explícitos em `common_inputs.npz`, usa streams independentes por realização e valida hashes antes de retomar ou agregar. Todo NPZ é lido com `allow_pickle=False`.
 
 ## Diretório `.kiro`
 
