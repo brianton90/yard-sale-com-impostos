@@ -8,7 +8,6 @@ from simulation.model import SimulationState
 class TradeResult:
     i: int
     j: int
-    poorer: int
     stake: float
     winner: int
     loser: int
@@ -20,13 +19,14 @@ def select_agents(n_agents: int, rng: np.random.Generator) -> tuple[int, int]:
     return int(i), int(j)
 
 
-def compute_poorer_agent(wealth: np.ndarray, i: int, j: int) -> int:
-    return i if wealth[i] < wealth[j] else j
+def compute_stake(state: SimulationState, i: int, j: int) -> float:
+    """Valor bruto da troca (regra fair): mínimo dos montantes disponibilizados pelos dois agentes.
 
-
-def compute_stake(state: SimulationState, poorer: int) -> float:
-    """Amount placed at risk by the poorer agent."""
-    return (1.0 - state.aversion[poorer]) * state.wealth[poorer]
+    a_e = min{(1 - beta_i) * w_i, (1 - beta_j) * w_j}
+    """
+    available_i = (1.0 - state.aversion[i]) * state.wealth[i]
+    available_j = (1.0 - state.aversion[j]) * state.wealth[j]
+    return float(min(available_i, available_j))
 
 
 def decide_winner(i: int, j: int, rng: np.random.Generator) -> tuple[int, int]:
@@ -36,17 +36,32 @@ def decide_winner(i: int, j: int, rng: np.random.Generator) -> tuple[int, int]:
     return j, i
 
 
-def apply_trade(state: SimulationState, winner: int, loser: int, stake: float) -> None:
-    """Update wealth arrays in place."""
-    state.wealth[winner] += stake
+def apply_trade(
+    state: SimulationState,
+    winner: int,
+    loser: int,
+    stake: float,
+    transaction_tax_rate: float = 0.0,
+) -> None:
+    """Atualiza riqueza e caixa no lugar.
+
+    O perdedor perde `stake`. O vencedor recebe `(1 - tau_X) * stake` e o imposto
+    `tau_X * stake` vai para o caixa.
+    """
+    tax = transaction_tax_rate * stake
+    state.wealth[winner] += stake - tax
     state.wealth[loser] -= stake
+    state.cash += tax
 
 
-def yard_sale_step(state: SimulationState, rng: np.random.Generator) -> TradeResult:
+def yard_sale_step(
+    state: SimulationState,
+    rng: np.random.Generator,
+    transaction_tax_rate: float = 0.0,
+) -> TradeResult:
     """Execute one Yard-Sale interaction."""
     i, j = select_agents(len(state.wealth), rng)
-    poorer = compute_poorer_agent(state.wealth, i, j)
-    stake = compute_stake(state, poorer)
+    stake = compute_stake(state, i, j)
     winner, loser = decide_winner(i, j, rng)
-    apply_trade(state, winner, loser, stake)
-    return TradeResult(i=i, j=j, poorer=poorer, stake=stake, winner=winner, loser=loser)
+    apply_trade(state, winner, loser, stake, transaction_tax_rate)
+    return TradeResult(i=i, j=j, stake=stake, winner=winner, loser=loser)
