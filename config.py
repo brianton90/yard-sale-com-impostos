@@ -9,7 +9,7 @@ class SimulationConfig:
     """Configuration for the Yard-Sale simulation."""
 
     n_agents: int = 10000
-    n_steps: int = 300
+    n_steps: int = 1200
     initial_wealth: float = 1.0
     seed: int = 42
     hist_bins: int = 50
