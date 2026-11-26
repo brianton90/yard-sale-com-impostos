@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "K": 4,
+  "confidence": 0.95,
+  "margins": {
+    "gini": {"absolute": 0.01},
+    "max_share": {"absolute": 0.01},
+    "volume": {"absolute": 0.01, "relative": 0.1}
+  },
+  "tail_fraction": 0.5,
+  "joint_status": "all_metrics_all_comparisons"
+}
